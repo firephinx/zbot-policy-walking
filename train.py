@@ -412,6 +412,55 @@ class XYOrientationReward(ksim.Reward):
         return jnp.exp(-quat_error / self.error_scale)
 
 
+@attrs.define(frozen=True, kw_only=True)
+class JointPositionPenalty(ksim.JointDeviationPenalty):
+    @classmethod
+    def create_from_names(
+        cls,
+        names: list[str],
+        physics_model: ksim.PhysicsModel,
+        scale: float = -1.0,
+        scale_by_curriculum: bool = False,
+    ) -> Self:
+        zeros = {k: v for k, v, _ in JOINT_BIASES}
+        weights = {k: w for k, _, w in JOINT_BIASES}
+        joint_targets = [zeros[name] for name in names]
+        joint_weights = [weights[name] for name in names]
+
+        return cls.create(
+            physics_model=physics_model,
+            joint_names=tuple(names),
+            joint_targets=tuple(joint_targets),
+            joint_weights=tuple(joint_weights),
+            scale=scale,
+            scale_by_curriculum=scale_by_curriculum,
+        )
+
+@attrs.define(frozen=True, kw_only=True)
+class ArmPosePenalty(JointPositionPenalty):
+    """Keeps the arm joints near the reference pose in ZEROS."""
+
+    @classmethod
+    def create_penalty(
+        cls,
+        physics_model: ksim.PhysicsModel,
+        scale: float = -1.0,
+        scale_by_curriculum: bool = True,
+    ) -> "ArmPosePenalty":
+        return cls.create_from_names(
+            names=[
+                "left_shoulder_roll",
+                "left_elbow_roll",
+                "left_gripper_roll",
+                "right_shoulder_roll",
+                "right_elbow_roll",
+                "right_gripper_roll",
+            ],
+            physics_model=physics_model,
+            scale=scale,
+            scale_by_curriculum=scale_by_curriculum,
+        )
+
 # Constant Zero Command, currently to match command dims from joystick.
 @attrs.define(frozen=True)
 class ConstantZeroCommand(ksim.Command):
@@ -1467,8 +1516,8 @@ class ZbotWalkingTask(ksim.PPOTask[ZbotWalkingTaskConfig]):
             ksim.StayAliveReward(scale=5.0),
             ksim.UprightReward(scale=5.0),
             BaseHeightReward(scale=1.0, error_scale=0.25, standard_height=0.25),
-            ksim.NaiveForwardReward(scale=50.0, clip_min=None, clip_max=0.2),
-            # ksim.NaiveForwardOrientationReward(scale=0.3),
+            ksim.NaiveForwardReward(scale=20.0, clip_min=None, clip_max=0.2),
+            ksim.NaiveForwardOrientationReward(scale=1.0),
             # ksim.LinearVelocityPenalty(
             #     index="y",
             #     in_robot_frame=True,
@@ -1502,7 +1551,7 @@ class ZbotWalkingTask(ksim.PPOTask[ZbotWalkingTaskConfig]):
             #      scale=-0.03,
             #      sensor_names=("sensor_observation_left_foot_force", "sensor_observation_right_foot_force"),
             # ),
-            # ArmPosePenalty.create_penalty(physics_model, scale=-2.00, scale_by_curriculum=True),
+            ArmPosePenalty.create_penalty(physics_model, scale=-5.0, scale_by_curriculum=True),
             # ksim.ActionTrackingReward(
             #    error_scale=0.1,
             #    scale=0.4,
@@ -1528,10 +1577,9 @@ class ZbotWalkingTask(ksim.PPOTask[ZbotWalkingTaskConfig]):
     def get_curriculum(self, physics_model: ksim.PhysicsModel) -> ksim.Curriculum:
         return ksim.EpisodeLengthCurriculum(
             num_levels=30,
-            increase_threshold=30.0,
-            decrease_threshold=10.0,
+            increase_threshold=3.0,
+            decrease_threshold=1.0,
             min_level_steps=10,
-            min_level=0.5,
         )
 
     def get_model(self, key: PRNGKeyArray) -> Model:
