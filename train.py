@@ -470,7 +470,7 @@ class BaseHeightReward(ksim.Reward):
     """Reward for keeping the base height at the commanded height."""
 
     error_scale: float = attrs.field(default=0.25)
-    standard_height: float = attrs.field(default=0.27)
+    standard_height: float = attrs.field(default=0.25)
 
     def get_reward(self, trajectory: ksim.Trajectory) -> Array:
         current_height = trajectory.xpos[:, 1, 2]  # 1st body, because world is 0. 2nd element is z.
@@ -566,79 +566,6 @@ class JointPositionPenalty(ksim.JointDeviationPenalty):
             joint_names=tuple(names),
             joint_targets=tuple(joint_targets),
             joint_weights=tuple(joint_weights),
-            scale=scale,
-            scale_by_curriculum=scale_by_curriculum,
-        )
-
-
-@attrs.define(frozen=True, kw_only=True)
-class StraightLegPenalty(JointPositionPenalty):
-    @classmethod
-    def create_penalty(
-        cls,
-        physics_model: ksim.PhysicsModel,
-        scale: float = -1.0,
-        scale_by_curriculum: bool = False,
-    ) -> Self:
-        return cls.create_from_names(
-            names=[
-                "left_hip_roll",
-                "left_hip_yaw",
-                "right_hip_roll",
-                "right_hip_yaw",
-            ],
-            physics_model=physics_model,
-            scale=scale,
-            scale_by_curriculum=scale_by_curriculum,
-        )
-
-
-class AnkleKneePenalty(JointPositionPenalty):
-    @classmethod
-    def create_penalty(
-        cls,
-        physics_model: ksim.PhysicsModel,
-        scale: float = -1.0,
-        scale_by_curriculum: bool = False,
-    ) -> Self:
-        return cls.create_from_names(
-            names=[
-                "left_knee_pitch",
-                "left_ankle_pitch",
-                "left_ankle_roll",
-                "right_knee_pitch",
-                "right_ankle_pitch",
-                "right_ankle_roll",
-            ],
-            physics_model=physics_model,
-            scale=scale,
-            scale_by_curriculum=scale_by_curriculum,
-        )
-
-
-@attrs.define(frozen=True, kw_only=True)
-class ArmPosePenalty(JointPositionPenalty):
-    """Keeps the arm joints near the reference pose in ZEROS."""
-
-    @classmethod
-    def create_penalty(
-        cls,
-        physics_model: ksim.PhysicsModel,
-        scale: float = -1.0,
-        scale_by_curriculum: bool = True,
-    ) -> "ArmPosePenalty":
-        return cls.create_from_names(
-            names=[
-                "left_shoulder_pitch",
-                "left_shoulder_roll",
-                "left_elbow_roll",
-                "left_gripper_roll",
-                "right_shoulder_pitch",
-                "right_shoulder_roll",
-                "right_elbow_roll",
-                "right_gripper_roll",
-            ],
-            physics_model=physics_model,
             scale=scale,
             scale_by_curriculum=scale_by_curriculum,
         )
@@ -1537,57 +1464,58 @@ class ZbotWalkingTask(ksim.PPOTask[ZbotWalkingTaskConfig]):
 
     def get_rewards(self, physics_model: ksim.PhysicsModel) -> list[ksim.Reward]:
         return [
-            ksim.StayAliveReward(scale=1.0),
-            ksim.UprightReward(scale=1.0),
-            ksim.NaiveForwardReward(scale=5.0, clip_min=None, clip_max=0.2),
-            ksim.NaiveForwardOrientationReward(scale=0.3),
-            ksim.LinearVelocityPenalty(
-                index="y",
-                in_robot_frame=True,
-                norm="l1",
-                scale=-5.0,
-            ),
-            SimpleSingleFootContactReward(scale=0.3, stand_still_threshold=None),
-            FeetAirtimeReward(
-                scale=10.0,
-                ctrl_dt=self.config.ctrl_dt,
-                touchdown_penalty=0.1,
-                stand_still_threshold=None,
-            ),
+            ksim.StayAliveReward(scale=5.0),
+            ksim.UprightReward(scale=5.0),
+            BaseHeightReward(scale=1.0, error_scale=0.25, standard_height=0.25),
+            ksim.NaiveForwardReward(scale=50.0, clip_min=None, clip_max=0.2),
+            # ksim.NaiveForwardOrientationReward(scale=0.3),
+            # ksim.LinearVelocityPenalty(
+            #     index="y",
+            #     in_robot_frame=True,
+            #     norm="l1",
+            #     scale=-5.0,
+            # ),
+            # SimpleSingleFootContactReward(scale=0.3, stand_still_threshold=None),
+            # FeetAirtimeReward(
+            #     scale=10.0,
+            #     ctrl_dt=self.config.ctrl_dt,
+            #     touchdown_penalty=0.1,
+            #     stand_still_threshold=None,
+            # ),
             FeetOrientationReward.create(
                 physics_model,
                 target_rp=(0.0, 0.0),
                 error_scale=0.25,
-                scale=0.3,
+                scale=2.0,
             ),
-            FeetTooClosePenalty(
-                feet_pos_obs_key="feet_position_observation",
-                threshold_m=0.12,
-                scale=-0.5,
-            ),
-            StraightLegPenalty.create_penalty(physics_model, scale=-0.5, scale_by_curriculum=True),
-            AnkleKneePenalty.create_penalty(physics_model, scale=-0.025, scale_by_curriculum=True),
+            # FeetTooClosePenalty(
+            #     feet_pos_obs_key="feet_position_observation",
+            #     threshold_m=0.12,
+            #     scale=-0.5,
+            # ),
+            # StraightLegPenalty.create_penalty(physics_model, scale=-0.5, scale_by_curriculum=True),
+            # AnkleKneePenalty.create_penalty(physics_model, scale=-0.025, scale_by_curriculum=True),
             # ksim.ActionVelocityPenalty(scale=-0.01,  scale_by_curriculum=True),
             # ksim.JointVelocityPenalty (scale=-0.01,  scale_by_curriculum=True),
             # ksim.JointAccelerationPenalty(scale=-0.01, scale_by_curriculum=True),
-            ContactForcePenalty( # NOTE this could actually be good but eliminate until needed
-                 scale=-0.03,
-                 sensor_names=("sensor_observation_left_foot_force", "sensor_observation_right_foot_force"),
-            ),
-            ArmPosePenalty.create_penalty(physics_model, scale=-2.00, scale_by_curriculum=True),
-            #ksim.ActionTrackingReward(
+            # ContactForcePenalty( # NOTE this could actually be good but eliminate until needed
+            #      scale=-0.03,
+            #      sensor_names=("sensor_observation_left_foot_force", "sensor_observation_right_foot_force"),
+            # ),
+            # ArmPosePenalty.create_penalty(physics_model, scale=-2.00, scale_by_curriculum=True),
+            # ksim.ActionTrackingReward(
             #    error_scale=0.1,
             #    scale=0.4,
             #    use_exponential=False,
             #    scale_by_curriculum=True,
             #),
-            #ksim.ActionVelocityPenalty(scale=-2.0, scale_by_curriculum=True),
-            ksim.ReachabilityPenalty(
-                delta_max_j=tuple(float(x) for x in self.delta_max_j),
-                scale=-1.0,
-                squared=False,
-                scale_by_curriculum=True,
-            ),
+            # ksim.ActionVelocityPenalty(scale=-2.0, scale_by_curriculum=True),
+            # ksim.ReachabilityPenalty(
+            #     delta_max_j=tuple(float(x) for x in self.delta_max_j),
+            #     scale=-1.0,
+            #     squared=False,
+            #     scale_by_curriculum=True,
+            # ),
         ]
 
     def get_terminations(self, physics_model: ksim.PhysicsModel) -> list[ksim.Termination]:
