@@ -1514,9 +1514,9 @@ class ZbotWalkingTask(ksim.PPOTask[ZbotWalkingTaskConfig]):
     def get_rewards(self, physics_model: ksim.PhysicsModel) -> list[ksim.Reward]:
         return [
             ksim.StayAliveReward(scale=5.0),
-            ksim.UprightReward(scale=5.0),
+            ksim.UprightReward(scale=1.0),
             BaseHeightReward(scale=1.0, error_scale=0.25, standard_height=0.25),
-            ksim.NaiveForwardReward(scale=20.0, clip_min=None, clip_max=0.2),
+            ksim.NaiveForwardReward(scale=50.0, clip_min=None, clip_max=0.5),
             ksim.NaiveForwardOrientationReward(scale=1.0),
             # ksim.LinearVelocityPenalty(
             #     index="y",
@@ -1551,7 +1551,7 @@ class ZbotWalkingTask(ksim.PPOTask[ZbotWalkingTaskConfig]):
             #      scale=-0.03,
             #      sensor_names=("sensor_observation_left_foot_force", "sensor_observation_right_foot_force"),
             # ),
-            ArmPosePenalty.create_penalty(physics_model, scale=-5.0, scale_by_curriculum=True),
+            ArmPosePenalty.create_penalty(physics_model, scale=-5.0),
             # ksim.ActionTrackingReward(
             #    error_scale=0.1,
             #    scale=0.4,
@@ -1577,9 +1577,9 @@ class ZbotWalkingTask(ksim.PPOTask[ZbotWalkingTaskConfig]):
     def get_curriculum(self, physics_model: ksim.PhysicsModel) -> ksim.Curriculum:
         return ksim.EpisodeLengthCurriculum(
             num_levels=30,
-            increase_threshold=3.0,
-            decrease_threshold=1.0,
-            min_level_steps=10,
+            increase_threshold=30.0,
+            decrease_threshold=10.0,
+            min_level_steps=5,
         )
 
     def get_model(self, key: PRNGKeyArray) -> Model:
